@@ -11,7 +11,7 @@
 #pragma once
 
 #define DEVICE_NAME           "ShipNavMap"
-#define FIRMWARE_VERSION      "2.0.0"
+#define FIRMWARE_VERSION      "2.0.1"
 #define BOARD_TYPE            "ESP32-S3"
 #define ROOM                  "MermaidsTale"
 #define DESCRIPTION           "Ship-room navigational map LED strip. Stays DARK until Unreal starts the wheel/obstacle-course crossing (MermaidsTale/ObstacleCourseIntro = trigger, the same cue that makes Red Beard order a player to the wheel). That lights segment 1 (first 3 LEDs). Each landmark the helmsman reaches (MermaidsTale/Landmark1..4 = Triggered) lights the next 3-LED segment. Landmark5 = crossing complete (status SOLVED). Pixels inside a segment light ONE AT A TIME with a 1 s pause. GameReset / GameStart turn the strip dark again. Listens only - never publishes to game topics."

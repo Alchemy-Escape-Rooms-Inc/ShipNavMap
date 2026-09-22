@@ -1,5 +1,5 @@
 //================================================
-//  A Mermaid's Tale - Ship Navigational Map LED strip (v2.0.0)
+//  A Mermaid's Tale - Ship Navigational Map LED strip (v2.0.1)
 //  Target: ESP32 / ESP32-S3 (default) or ESP8266 - picked by the board
 //  you compile for; pins come from MANIFEST.h.
 //
@@ -315,6 +315,9 @@ static uint8_t landmarkIndex(const char* topic) {
 }
 
 void handleCommand(char* msg) {
+  // Our own replies come back on the same topic - don't treat them as commands.
+  if (strcmp(msg, "OK") == 0 || strcmp(msg, "PONG") == 0 ||
+      strncmp(msg, "ERR", 3) == 0 || strchr(msg, '|') != NULL) return;
   Serial.printf("[MQTT] command: %s\n", msg);
   if (strcmp(msg, "PING") == 0)   { mqtt.publish(MQTT_TOPIC_COMMAND, "PONG"); return; }
   if (strcmp(msg, "STATUS") == 0) { promptStatus(); return; }
@@ -431,6 +434,12 @@ void setupLights() {
 
 void setup() {
   Serial.begin(115200);
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+  // Native-USB serial BLOCKS every print while no PC is reading the port
+  // (bench 2026-09-22: pixels lit 1 per ~5 s instead of 1 per 1 s until a
+  // terminal was opened). Zero timeout = drop the bytes, never stall loop().
+  Serial.setTxTimeoutMs(0);
+#endif
   delay(300);
   Serial.printf("\n%s v%s\n", PROP_NAME, VERSION);
 
