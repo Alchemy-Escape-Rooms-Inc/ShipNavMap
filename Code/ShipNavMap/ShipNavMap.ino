@@ -42,7 +42,8 @@
 //    MermaidsTale/ShipNavMap/progress  SEG:n/5 on every change (non-retained)
 //    MermaidsTale/ShipNavMap/log       human-readable events
 //    MermaidsTale/ShipNavMap/command   PING, STATUS, RESET, CLEAR, LIGHTS_TEST,
-//                                      PREVIEW <0-5|NEXT|FULL|OFF>
+//                                      PREVIEW <0-5|NEXT|FULL|OFF>,
+//                                      PIXEL <n|OFF>, WALK [OFF]  (bench: find marker LEDs)
 //
 //  Fleet hardening (same as MiniBarrelsLights v1.0.0): LWT retained
 //  OFFLINE, 30 s task WDT (ESP32), 2-min offline self-reboot,
@@ -57,6 +58,7 @@
 #endif
 #include <PubSubClient.h>
 #include <FastLED.h>
+#include <ArduinoOTA.h>   // MANDATORY per mqtt-protocol.md (2026-09-22): wireless re-flash
 #include <stdarg.h>
 #include "MANIFEST.h"   // single source of truth: version, broker, pins, segment size
 
@@ -95,11 +97,21 @@ bool          solved           = false;   // Landmark5 seen
 unsigned long lastStepMs       = 0;
 bool          lightsDirty      = true;
 
+// Bench counting helpers (PIXEL n / WALK) - override the route picture.
+int           previewPixel     = -1;      // 0-based single lit LED, -1 = off
+unsigned long previewPixelEnd  = 0;
+bool          walkActive       = false;
+uint16_t      walkIndex        = 0;       // 0-based LED currently lit by WALK
+unsigned long walkNextMs       = 0;
+const unsigned long PIXEL_HOLD_MS = 120000;   // PIXEL n stays lit 2 min
+static const CRGB COLOR_MARK   = CRGB(255, 255, 255);
+
 // WiFi + MQTT -----------------------------------------------------------
 static const char* WIFI_SSID   = "AlchemyGuest";
 static const char* WIFI_PASS   = "VoodooVacation5601";
 static const char* MQTT_SERVER = BROKER_IP;
 static const int   MQTT_PORT   = BROKER_PORT;
+static const char* OTA_PASSWORD = WIFI_PASS;   // protocol: OTA password = Wi-Fi password
 
 #define TOPIC_ROOT "MermaidsTale/ShipNavMap/"
 static const char* MQTT_TOPIC_STATUS   = TOPIC_ROOT "status";
@@ -229,10 +241,38 @@ void serviceAnimation() {
 //            Lights
 //================================================
 void renderLights() {
-  for (uint16_t i = 0; i < LED_COUNT; i++)
-    leds[i] = (i < pixelsLit) ? COLOR_ROUTE : COLOR_OFF;
+  if (walkActive || previewPixel >= 0) {
+    int mark = walkActive ? (int)walkIndex : previewPixel;
+    for (uint16_t i = 0; i < LED_COUNT; i++)
+      leds[i] = ((int)i == mark) ? COLOR_MARK : COLOR_OFF;
+  } else {
+    for (uint16_t i = 0; i < LED_COUNT; i++)
+      leds[i] = (i < pixelsLit) ? COLOR_ROUTE : COLOR_OFF;
+  }
   FastLED.show();
   lightsDirty = false;
+}
+
+// PIXEL n timeout + WALK stepper (bench only).
+void serviceBenchHelpers() {
+  unsigned long now = millis();
+  if (previewPixel >= 0 && (long)(now - previewPixelEnd) >= 0) {
+    previewPixel = -1;
+    lightsDirty  = true;
+  }
+  if (walkActive && (long)(now - walkNextMs) >= 0) {
+    walkNextMs = now + LED_STEP_MS;
+    walkIndex++;
+    if (walkIndex >= LED_COUNT) {
+      walkActive  = false;
+      lightsDirty = true;
+      mqttLogf("WALK done at LED %u", (unsigned)LED_COUNT);
+      return;
+    }
+    lightsDirty = true;
+    if ((walkIndex + 1) % 5 == 0) mqttLogf("WALK at LED %u", (unsigned)walkIndex + 1);
+    else Serial.printf("[WALK] LED %u\n", (unsigned)walkIndex + 1);
+  }
 }
 
 // Boot / LIGHTS_TEST: whole strip RED, GREEN, BLUE, then back to the real
@@ -262,6 +302,24 @@ void ensureWiFi() {
   }
 }
 
+// Over-the-air updates (MANDATORY, mqtt-protocol.md 2026-09-22). After the
+// one-time USB flash, re-flash over Wi-Fi:
+//   arduino-cli upload --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc -p <board IP> \
+//       --upload-field password=VoodooVacation5601 Code/ShipNavMap
+// Board IP is in every STATUS reply and the boot line on /log.
+void setupOTA() {
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() {
+    walkActive = false; previewPixel = -1;          // nothing to stop but the bench helpers
+    mqttLogf("OTA update starting - lights hold, back in ~30 s");
+  });
+  ArduinoOTA.onEnd([]()   { Serial.println("OTA done, rebooting"); });
+  ArduinoOTA.onError([](ota_error_t e) { Serial.printf("OTA error %u\n", (unsigned)e); });
+  ArduinoOTA.begin();
+  Serial.printf("OTA ready: %s @ %s:%d\n", OTA_HOSTNAME, WiFi.localIP().toString().c_str(), OTA_PORT);
+}
+
 void ensureMqtt() {
   if (mqtt.connected()) return;
   if (millis() - lastMqttAttemptMs < MQTT_RETRY_MS) return;
@@ -275,22 +333,22 @@ void ensureMqtt() {
     mqtt.subscribe(TOPIC_GAME_START);
     subscribedAtMs = millis();
     mqtt.publish(MQTT_TOPIC_STATUS, solved ? "SOLVED" : "ONLINE", true);
-    mqttLogf("%s v%s online (%u LEDs, %u per segment, %u segments)",
-             PROP_NAME, VERSION, (unsigned)LED_COUNT, (unsigned)LEDS_PER_SEGMENT,
-             (unsigned)SEGMENT_COUNT);
+    mqttLogf("%s v%s online at IP %s (OTA :%d) - %u LEDs, %u per segment, %u segments",
+             PROP_NAME, VERSION, WiFi.localIP().toString().c_str(), OTA_PORT,
+             (unsigned)LED_COUNT, (unsigned)LEDS_PER_SEGMENT, (unsigned)SEGMENT_COUNT);
   } else {
     Serial.printf("MQTT failed rc=%d\n", mqtt.state());
   }
 }
 
 void promptStatus() {
-  char buf[112];
-  snprintf(buf, sizeof(buf), "%s|SEG:%u/%u|LIT:%u/%u|L%d%d%d%d%d|UP:%lus|V%s",
+  char buf[144];
+  snprintf(buf, sizeof(buf), "%s|SEG:%u/%u|LIT:%u/%u|L%d%d%d%d%d|UP:%lus|IP:%s|OTA:%d|V%s",
            solved ? "SOLVED" : (crossingStarted ? "CROSSING" : "IDLE"),
            (unsigned)segmentsWanted, (unsigned)SEGMENT_COUNT,
            (unsigned)pixelsLit, (unsigned)LED_COUNT,
            landmarkSeen[0], landmarkSeen[1], landmarkSeen[2], landmarkSeen[3], landmarkSeen[4],
-           millis() / 1000UL, VERSION);
+           millis() / 1000UL, WiFi.localIP().toString().c_str(), OTA_PORT, VERSION);
   mqtt.publish(MQTT_TOPIC_COMMAND, buf);
   mqttLogf("STATUS -> %s", buf);
 }
@@ -336,6 +394,41 @@ void handleCommand(char* msg) {
   if (strcmp(msg, "LIGHTS_TEST") == 0) {
     mqtt.publish(MQTT_TOPIC_COMMAND, "OK");
     lightsSelfTest();
+    return;
+  }
+  // PIXEL <n> - light ONLY LED n (1-based) white for 2 min, to find marker
+  // positions on the strip. PIXEL OFF clears it.
+  if (strncmp(msg, "PIXEL", 5) == 0) {
+    const char* arg = msg + 5;
+    while (*arg == ' ') arg++;
+    walkActive = false;
+    if (strcasecmp(arg, "OFF") == 0) { previewPixel = -1; }
+    else {
+      int n = atoi(arg);
+      if (n < 1 || n > LED_COUNT) { mqtt.publish(MQTT_TOPIC_COMMAND, "ERR PIXEL 1-N|OFF"); return; }
+      previewPixel    = n - 1;
+      previewPixelEnd = millis() + PIXEL_HOLD_MS;
+      mqttLogf("PIXEL %d lit (white) for 2 min", n);
+    }
+    lightsDirty = true;
+    mqtt.publish(MQTT_TOPIC_COMMAND, "OK");
+    return;
+  }
+  // WALK - one white LED steps from 1 to the end, one per second, so you
+  // can count positions. WALK OFF stops it.
+  if (strncmp(msg, "WALK", 4) == 0) {
+    const char* arg = msg + 4;
+    while (*arg == ' ') arg++;
+    previewPixel = -1;
+    if (strcasecmp(arg, "OFF") == 0) { walkActive = false; }
+    else {
+      walkActive = true;
+      walkIndex  = 0;
+      walkNextMs = millis() + LED_STEP_MS;
+      mqttLogf("WALK started at LED 1, one per second");
+    }
+    lightsDirty = true;
+    mqtt.publish(MQTT_TOPIC_COMMAND, "OK");
     return;
   }
   // PREVIEW <0-5> | NEXT | FULL | OFF - bench aid. Drives the SAME route
@@ -463,6 +556,7 @@ void setup() {
   lightsSelfTest();   // R/G/B sweep the moment power lands - proves wiring
 
   ensureWiFi();
+  setupOTA();          // mandatory: wireless re-flash listener, right after Wi-Fi
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
   mqtt.setCallback(mqttCallback);
   mqtt.setBufferSize(256);
@@ -473,6 +567,7 @@ void setup() {
 void loop() {
   wdtFeed();
   ensureWiFi();
+  ArduinoOTA.handle();  // mandatory: service OTA every loop
   ensureMqtt();
   mqtt.loop();
 
@@ -484,6 +579,7 @@ void loop() {
   }
 
   serviceAnimation();               // one pixel per second toward the goal
+  serviceBenchHelpers();            // PIXEL / WALK bench helpers
   if (lightsDirty) renderLights();  // one show() per change, never per loop
   heartBeat();
 }
