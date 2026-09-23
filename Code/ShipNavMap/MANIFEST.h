@@ -11,7 +11,7 @@
 #pragma once
 
 #define DEVICE_NAME           "ShipNavMap"
-#define FIRMWARE_VERSION      "2.1.2-count"
+#define FIRMWARE_VERSION      "2.1.3-count"
 #define BOARD_TYPE            "ESP32-S3"
 #define ROOM                  "MermaidsTale"
 #define DESCRIPTION           "Ship-room navigational map LED strip. Stays DARK until Unreal starts the wheel/obstacle-course crossing (MermaidsTale/ObstacleCourseIntro = trigger, the same cue that makes Red Beard order a player to the wheel). That lights segment 1 (first 3 LEDs). Each landmark the helmsman reaches (MermaidsTale/Landmark1..4 = Triggered) lights the next 3-LED segment. Landmark5 = crossing complete (status SOLVED). Pixels inside a segment light ONE AT A TIME with a 1 s pause. GameReset / GameStart turn the strip dark again. Listens only - never publishes to game topics."
@@ -62,7 +62,7 @@
 #define LEDS_PER_SEGMENT      3        // pixels lit per landmark
 #define LED_STEP_MS           1000     // pause between pixels inside a segment
 #define LED_COLOR_ORDER       GRB      // WS2812B is GRB; boot self-test shows R,G,B in order
-#define LED_BRIGHTNESS        200      // 0-255 global cap
+#define LED_BRIGHTNESS        100      // 0-255 global cap (100 while the strip is powered from the board; raise once it has its own 5V supply)
 #define ROUTE_COLOR_R         255      // colour of a lit route pixel
 #define ROUTE_COLOR_G         40
 #define ROUTE_COLOR_B         0

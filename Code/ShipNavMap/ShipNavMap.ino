@@ -280,14 +280,23 @@ void serviceBenchHelpers() {
 
 // Boot / LIGHTS_TEST: whole strip RED, GREEN, BLUE, then back to the real
 // state. If "RED" shows as another colour, change LED_COLOR_ORDER.
+// GENTLE: only the first SELFTEST_LEDS pixels, at reduced brightness. Lighting
+// the whole strip at full white-equivalent (the old way) pulled enough current
+// on a long strip to brown the board out -> reboot -> self-test -> brownout
+// loop (seen 2026-09-22 the moment LED_STRING_LENGTH went 15 -> 150).
+#define SELFTEST_LEDS 8
 void lightsSelfTest() {
   const CRGB seq[3] = { CRGB(255, 0, 0), CRGB(0, 255, 0), CRGB(0, 0, 255) };
+  const uint16_t n = (LED_COUNT < SELFTEST_LEDS) ? LED_COUNT : SELFTEST_LEDS;
+  FastLED.setBrightness(60);
   for (uint8_t k = 0; k < 3; k++) {
-    fill_solid(leds, LED_COUNT, seq[k]);
+    fill_solid(leds, LED_COUNT, COLOR_OFF);
+    fill_solid(leds, n, seq[k]);
     FastLED.show();
     delay(300);
     wdtFeed();
   }
+  FastLED.setBrightness(LED_BRIGHTNESS);
   lightsDirty = true;
 }
 
