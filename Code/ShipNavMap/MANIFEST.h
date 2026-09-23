@@ -29,10 +29,10 @@
 // After the one-time USB flash: arduino-cli upload -p <board IP> --upload-field password=<Wi-Fi password> ...
 #define OTA_ENABLED           "yes"
 #define OTA_HOSTNAME          "ShipNavMap"          // = DEVICE_NAME
-#if defined(ESP8266)
-#define OTA_PORT              8266
+#if !defined(ESP8266)
+#define OTA_PORT              3232                  // ESP32 / S3 (first so the WatchTower parser reads it)
 #else
-#define OTA_PORT              3232
+#define OTA_PORT              8266
 #endif
 
 #define SUBSCRIBE_TOPICS      "MermaidsTale/ObstacleCourseIntro (trigger = light segment 1; 'speaking' ack ignored), MermaidsTale/Landmark1..5 (Triggered|true|1 = light next segment, Landmark5 = SOLVED), MermaidsTale/GameReset and MermaidsTale/GameStart (any payload = strip dark), MermaidsTale/ShipNavMap/command"
