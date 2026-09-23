@@ -11,7 +11,7 @@
 #pragma once
 
 #define DEVICE_NAME           "ShipNavMap"
-#define FIRMWARE_VERSION      "2.1.1-count"
+#define FIRMWARE_VERSION      "2.1.2-count"
 #define BOARD_TYPE            "ESP32-S3"
 #define ROOM                  "MermaidsTale"
 #define DESCRIPTION           "Ship-room navigational map LED strip. Stays DARK until Unreal starts the wheel/obstacle-course crossing (MermaidsTale/ObstacleCourseIntro = trigger, the same cue that makes Red Beard order a player to the wheel). That lights segment 1 (first 3 LEDs). Each landmark the helmsman reaches (MermaidsTale/Landmark1..4 = Triggered) lights the next 3-LED segment. Landmark5 = crossing complete (status SOLVED). Pixels inside a segment light ONE AT A TIME with a 1 s pause. GameReset / GameStart turn the strip dark again. Listens only - never publishes to game topics."
@@ -37,7 +37,7 @@
 
 #define SUBSCRIBE_TOPICS      "MermaidsTale/ObstacleCourseIntro (trigger = light segment 1; 'speaking' ack ignored), MermaidsTale/Landmark1..5 (Triggered|true|1 = light next segment, Landmark5 = SOLVED), MermaidsTale/GameReset and MermaidsTale/GameStart (any payload = strip dark), MermaidsTale/ShipNavMap/command"
 #define PUBLISH_TOPICS        "MermaidsTale/ShipNavMap/status (retained ONLINE|SOLVED, LWT OFFLINE, HEARTBEAT:STATE:UPxs:RSSIx every 5 min), MermaidsTale/ShipNavMap/progress (SEG:n/5 non-retained on every change), MermaidsTale/ShipNavMap/log, MermaidsTale/ShipNavMap/command (PONG/OK/STATUS replies)"
-#define SUPPORTED_COMMANDS    "PING, STATUS, RESET (reboot), CLEAR (dark, same as GameReset), LIGHTS_TEST, PREVIEW <0-5|NEXT|FULL|OFF> (bench: fake the game progress without touching game topics), PIXEL <n|OFF> (light one LED by number), WALK [OFF] (one LED steps along the strip 1/s)"
+#define SUPPORTED_COMMANDS    "PING, STATUS, RESET (reboot), CLEAR (dark, same as GameReset), LIGHTS_TEST, PREVIEW <0-5|NEXT|FULL|OFF> (bench: fake the game progress without touching game topics), FILL <n|OFF> (light LEDs 1..n at 1/s), PIXEL <n|OFF> (light one LED by number), WALK [OFF] (one LED steps along the strip 1/s)"
 
 // Game topics this board LISTENS to (owned by Unreal / M3 - NEVER publish here)
 #define TOPIC_INTRO           "MermaidsTale/ObstacleCourseIntro"

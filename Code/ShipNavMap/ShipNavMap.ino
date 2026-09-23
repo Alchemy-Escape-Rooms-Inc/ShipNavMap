@@ -100,6 +100,7 @@ bool          lightsDirty      = true;
 // Bench counting helpers (PIXEL n / WALK) - override the route picture.
 int           previewPixel     = -1;      // 0-based single lit LED, -1 = off
 unsigned long previewPixelEnd  = 0;
+uint16_t      benchFill        = 0;       // FILL n: light LEDs 1..n (bench), 0 = off
 bool          walkActive       = false;
 uint16_t      walkIndex        = 0;       // 0-based LED currently lit by WALK
 unsigned long walkNextMs       = 0;
@@ -159,6 +160,7 @@ static bool isTruthy(const char* s) {
 
 static uint16_t pixelsWanted() {
   uint32_t n = (uint32_t)segmentsWanted * LEDS_PER_SEGMENT;
+  if (benchFill > n) n = benchFill;                 // bench FILL override
   return n > LED_COUNT ? LED_COUNT : (uint16_t)n;
 }
 
@@ -188,6 +190,7 @@ void routeClear(const char* why) {
   bool wasLit = (pixelsLit > 0 || segmentsWanted > 0 || solved || crossingStarted);
   segmentsWanted  = 0;
   pixelsLit       = 0;
+  benchFill       = 0;
   crossingStarted = false;
   solved          = false;
   for (uint8_t i = 0; i < LANDMARK_COUNT; i++) landmarkSeen[i] = false;
@@ -394,6 +397,24 @@ void handleCommand(char* msg) {
   if (strcmp(msg, "LIGHTS_TEST") == 0) {
     mqtt.publish(MQTT_TOPIC_COMMAND, "OK");
     lightsSelfTest();
+    return;
+  }
+  // FILL <n> - light LEDs 1..n one per second (bench), FILL OFF = dark.
+  if (strncmp(msg, "FILL", 4) == 0) {
+    const char* arg = msg + 4;
+    while (*arg == ' ') arg++;
+    walkActive = false; previewPixel = -1;
+    if (strcasecmp(arg, "OFF") == 0) { routeClear("FILL OFF"); }
+    else {
+      int n = atoi(arg);
+      if (n < 1 || n > LED_COUNT) { mqtt.publish(MQTT_TOPIC_COMMAND, "ERR FILL 1-N|OFF"); return; }
+      if ((uint16_t)n < pixelsLit) { pixelsLit = 0; }   // going down: restart the draw from 1
+      benchFill  = (uint16_t)n;
+      lastStepMs = millis() - LED_STEP_MS;
+      mqttLogf("FILL -> LEDs 1..%d lighting 1/s", n);
+    }
+    lightsDirty = true;
+    mqtt.publish(MQTT_TOPIC_COMMAND, "OK");
     return;
   }
   // PIXEL <n> - light ONLY LED n (1-based) white for 2 min, to find marker
